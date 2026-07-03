@@ -1,0 +1,691 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>orbit</title>
+  <style>
+    :root {
+      --motion-fast: 160ms;
+      --motion-base: 240ms;
+      --motion-slow: 360ms;
+      --ease-out-expo: cubic-bezier(0.22, 1, 0.36, 1);
+    }
+    @media (prefers-reduced-motion: reduce) {
+      :root {
+        --motion-fast: 0.01ms;
+        --motion-base: 0.01ms;
+        --motion-slow: 0.01ms;
+      }
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      width: 100%; height: 100%; overflow: hidden;
+      background: #0a0e17;
+      font-family: system-ui, sans-serif;
+      color: rgba(255,255,255,0.6);
+      -webkit-tap-highlight-color: transparent;
+    }
+    #canvas {
+      position: fixed; top: 0; left: 0;
+      width: 100%; height: 100%; display: block;
+    }
+    #hero {
+      position: fixed; top: 20px; right: 20px;
+      text-align: right; pointer-events: none;
+    }
+    #hero-count {
+      font-size: 48px; font-weight: 300; line-height: 1;
+      color: #00bcd4;
+      text-shadow: 0 0 20px rgba(0,188,212,0.5), 0 0 40px rgba(0,188,212,0.2);
+    }
+    #hero-label {
+      font-size: 11px; opacity: 0.45; margin-top: 4px;
+      letter-spacing: 0.04em;
+    }
+    #stamp {
+      position: fixed; bottom: 20px; left: 16px;
+      font: 10px system-ui, sans-serif; opacity: 0.4;
+      pointer-events: none; white-space: nowrap;
+    }
+    #legend {
+      position: fixed; bottom: 44px; left: 50%;
+      transform: translateX(-50%);
+      font: 10px system-ui, sans-serif; opacity: 0.35;
+      display: flex; gap: 14px; align-items: center;
+      pointer-events: none; flex-wrap: wrap; justify-content: center;
+      max-width: 95vw;
+    }
+    .legend-item { display: flex; align-items: center; gap: 5px; }
+    .legend-dot {
+      width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+    }
+    .legend-line {
+      width: 14px; height: 2px; flex-shrink: 0; border-radius: 1px;
+    }
+    #desc {
+      position: fixed; bottom: 68px; left: 50%;
+      transform: translateX(-50%);
+      font: 11px system-ui, sans-serif; opacity: 0.45;
+      max-width: 65ch; text-align: center;
+      pointer-events: none; padding: 0 16px;
+    }
+    #quiet-zone {
+      position: fixed; bottom: 100px; left: 50%;
+      transform: translateX(-50%) translateY(12px);
+      background: rgba(15,27,45,0.92);
+      border: 1px solid rgba(0,188,212,0.25);
+      border-radius: 12px;
+      padding: 16px 20px 14px;
+      min-width: 220px; max-width: 90vw;
+      text-align: center;
+      opacity: 0; pointer-events: none;
+      transition: opacity var(--motion-base) var(--ease-out-expo),
+                  transform var(--motion-base) var(--ease-out-expo);
+      backdrop-filter: blur(8px);
+      box-shadow: 0 0 30px rgba(0,188,212,0.08);
+    }
+    #quiet-zone.visible {
+      opacity: 1; transform: translateX(-50%) translateY(0);
+      pointer-events: none;
+    }
+    #qz-close {
+      position: absolute; top: 8px; right: 10px;
+      background: none; border: none; color: rgba(255,255,255,0.4);
+      font-size: 18px; cursor: pointer; line-height: 1;
+      pointer-events: auto; padding: 4px 6px;
+      transition: color var(--motion-fast);
+    }
+    #qz-close:hover { color: #00bcd4; }
+    #qz-title {
+      font-size: 14px; font-weight: 500; color: rgba(255,255,255,0.85);
+      margin-bottom: 6px; padding-right: 20px;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    #qz-price {
+      font-size: 32px; font-weight: 300; color: #00bcd4;
+      text-shadow: 0 0 16px rgba(0,188,212,0.4);
+      line-height: 1.1; margin-bottom: 8px;
+    }
+    #qz-meta {
+      font-size: 11px; opacity: 0.55; line-height: 1.6;
+      pointer-events: none;
+    }
+    #qz-meta .stock-high { color: #00e676; }
+    #qz-meta .stock-low { color: #ff1744; }
+    .bg-glow {
+      position: fixed; inset: 0; pointer-events: none; z-index: -1;
+      background:
+        radial-gradient(ellipse 80% 60% at 50% 40%, rgba(2,119,189,0.12) 0%, transparent 70%),
+        radial-gradient(ellipse 50% 40% at 20% 80%, rgba(0,188,212,0.06) 0%, transparent 60%),
+        #0a0e17;
+    }
+  </style>
+</head>
+<body>
+  <div class="bg-glow"></div>
+  <canvas id="canvas"></canvas>
+
+  <div id="hero">
+    <div id="hero-count">0</div>
+    <div id="hero-label">products orbiting</div>
+  </div>
+
+  <div id="stamp">DummyJSON · 0 products · fallback · 0s ago</div>
+
+  <div id="legend">
+    <span class="legend-item"><span class="legend-dot" style="background:#4dd0e1;width:14px;height:14px;border-radius:50%"></span>mass = price</span>
+    <span class="legend-item"><span class="legend-dot" style="background:#4dd0e1;box-shadow:0 0 8px #00bcd4"></span>glow = rating</span>
+    <span class="legend-item"><span class="legend-line" style="background:hsl(180,70%,50%)"></span>smartphones</span>
+    <span class="legend-item"><span class="legend-line" style="background:hsl(200,70%,50%)"></span>laptops</span>
+    <span class="legend-item"><span class="legend-line" style="background:hsl(160,70%,50%)"></span>fragrances</span>
+  </div>
+
+  <div id="desc">Tap a product to see its price, rating, and stock - bigger orbits mean more expensive products</div>
+
+  <div id="quiet-zone">
+    <button id="qz-close" aria-label="Close">&#x00D7;</button>
+    <div id="qz-title"></div>
+    <div id="qz-price"></div>
+    <div id="qz-meta"></div>
+  </div>
+
+  <script>
+  (function () {
+    'use strict';
+
+    const C = {
+      G: 0.5,
+      damping: 0.98,
+      minDist: 50,
+      dt: 0.016,
+      minMass: 10,
+      maxMass: 100,
+      minOrbitRadius: 40,
+      maxOrbitRadius: 120,
+      minBodyRadius: 6,
+      maxBodyRadius: 22,
+      minParticles: 3,
+      maxParticles: 15,
+      priceMin: 10,
+      priceMax: 999,
+      ratingMin: 0,
+      ratingMax: 5,
+      stockMin: 0,
+      stockMax: 200,
+      warmupTicks: 60,
+      entryDuration: 800,
+      entryStagger: 60,
+      orbitDrawDuration: 1000,
+      focusDimOpacity: 0.15,
+      focusZoom: 2.2,
+      cameraLerp: 0.06,
+      quietZoneIdleMs: 3000,
+      glowMaxBlur: 30,
+      glowMaxEntities: 20,
+      particleOrbitSpeed: 0.04,
+      boundaryPadding: 80,
+      orbitEllipseRatio: 0.65,
+      labelFontSize: 9,
+      stockHighThreshold: 50,
+      stockLowThreshold: 10,
+      fetchUrl: 'https://dummyjson.com/products?limit=30',
+      fetchTimeout: 8000
+    };
+
+    const PALETTE = {
+      bg: '#0a0e17',
+      secondary: '#0f1b2d',
+      accent1: '#00bcd4',
+      accent2: '#0277bd',
+      glow: '#4dd0e1',
+      text: 'rgba(255,255,255,0.6)',
+    };
+
+    const STROKE = { hair: 0.5, fine: 1, medium: 2, heavy: 4 };
+    const ALPHA = { bg: 0.08, field: 0.25, active: 0.7, label: 0.45 };
+
+    const scale = (val, inMin, inMax, outMin, outMax) =>
+      outMin + ((val - inMin) / (inMax - inMin)) * (outMax - outMin);
+    const invert = (pixel, outMin, outMax, inMin, inMax) =>
+      inMin + ((pixel - outMin) / (outMax - outMin)) * (inMax - inMin);
+    const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+
+    const CATEGORY_HUES = [180, 200, 160, 220, 140];
+    const categoryHueMap = {};
+
+    function getCategoryHue(category) {
+      if (!categoryHueMap[category]) {
+        const idx = Object.keys(categoryHueMap).length % CATEGORY_HUES.length;
+        categoryHueMap[category] = CATEGORY_HUES[idx];
+      }
+      return categoryHueMap[category];
+    }
+
+    function categoryColor(category) {
+      const h = getCategoryHue(category);
+      return `hsl(${h}, 70%, 50%)`;
+    }
+
+    const FALLBACK = [
+      { id: 1, title: 'iPhone 15 Pro', price: 999, rating: 4.85, stock: 42, category: 'smartphones', thumbnail: '' },
+      { id: 2, title: 'MacBook Air M3', price: 1099, rating: 4.72, stock: 28, category: 'laptops', thumbnail: '' },
+      { id: 3, title: 'Samsung Galaxy S24', price: 849, rating: 4.65, stock: 67, category: 'smartphones', thumbnail: '' },
+      { id: 4, title: 'Dell XPS 15', price: 1299, rating: 4.55, stock: 19, category: 'laptops', thumbnail: '' },
+      { id: 5, title: 'Chanel No. 5', price: 135, rating: 4.9, stock: 88, category: 'fragrances', thumbnail: '' },
+      { id: 6, title: 'Dior Sauvage', price: 98, rating: 4.78, stock: 95, category: 'fragrances', thumbnail: '' },
+      { id: 7, title: 'Sony WH-1000XM5', price: 349, rating: 4.82, stock: 54, category: 'electronics', thumbnail: '' },
+      { id: 8, title: 'Nike Air Max 90', price: 130, rating: 4.4, stock: 120, category: 'shoes', thumbnail: '' },
+      { id: 9, title: 'Adidas Ultraboost', price: 180, rating: 4.35, stock: 76, category: 'shoes', thumbnail: '' },
+      { id: 10, title: 'iPad Pro 12.9', price: 1099, rating: 4.68, stock: 33, category: 'electronics', thumbnail: '' },
+      { id: 11, title: 'Google Pixel 8', price: 699, rating: 4.5, stock: 61, category: 'smartphones', thumbnail: '' },
+      { id: 12, title: 'ThinkPad X1 Carbon', price: 1549, rating: 4.6, stock: 14, category: 'laptops', thumbnail: '' },
+      { id: 13, title: 'Tom Ford Black Orchid', price: 165, rating: 4.3, stock: 38, category: 'fragrances', thumbnail: '' },
+      { id: 14, title: 'Budget Earbuds', price: 29, rating: 3.2, stock: 200, category: 'electronics', thumbnail: '' },
+      { id: 15, title: 'Flip Flops Basic', price: 12, rating: 3.0, stock: 8, category: 'shoes', thumbnail: '' },
+    ];
+
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const heroCount = document.getElementById('hero-count');
+    const stamp = document.getElementById('stamp');
+    const quietZone = document.getElementById('quiet-zone');
+    const qzTitle = document.getElementById('qz-title');
+    const qzPrice = document.getElementById('qz-price');
+    const qzMeta = document.getElementById('qz-meta');
+    const qzClose = document.getElementById('qz-close');
+
+    let W = 0, H = 0, dpr = 1;
+    let bodies = [];
+    let centerX = 0, centerY = 0;
+    let dataSource = 'fallback';
+    let fetchTime = Date.now();
+    let focusedIndex = -1;
+    let hoveredIndex = -1;
+    let camera = { x: 0, y: 0, zoom: 1, tx: 0, ty: 0, tz: 1 };
+    let startTime = 0;
+    let quietZoneTimer = null;
+    let tapping = false;
+    let reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    let animFrame = 0;
+    let glowEntities = [];
+
+    function resize() {
+      W = window.innerWidth;
+      H = window.innerHeight;
+      dpr = Math.min(window.devicePixelRatio || 1, 2);
+      canvas.width = W * dpr;
+      canvas.height = H * dpr;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      centerX = W / 2;
+      centerY = H / 2;
+    }
+
+    function createParticles(count, baseRadius) {
+      const particles = [];
+      for (let i = 0; i < count; i++) {
+        particles.push({
+          angle: (i / count) * Math.PI * 2 + Math.random() * 0.5,
+          radius: baseRadius * (0.3 + Math.random() * 0.5),
+          speed: C.particleOrbitSpeed * (1 + Math.random() * 1.5)
+        });
+      }
+      return particles;
+    }
+
+    function productToBody(product, index, total) {
+      const mass = scale(product.price, C.priceMin, C.priceMax, C.minMass, C.maxMass);
+      const orbitRadius = scale(product.price, C.priceMin, C.priceMax, C.minOrbitRadius, C.maxOrbitRadius);
+      const bodyRadius = scale(mass, C.minMass, C.maxMass, C.minBodyRadius, C.maxBodyRadius);
+      const glowBlur = clamp(scale(product.rating, C.ratingMin, C.ratingMax, 5, C.glowMaxBlur), 5, C.glowMaxBlur);
+      const glowAlpha = clamp(scale(product.rating, C.ratingMin, C.ratingMax, 0.3, 1.0), 0.3, 1.0);
+      const particleCount = Math.round(clamp(
+        scale(product.stock, C.stockMin, C.stockMax, C.minParticles, C.maxParticles),
+        C.minParticles, C.maxParticles
+      ));
+      const angle = (index / total) * Math.PI * 2;
+      const dist = orbitRadius * 0.85;
+      const speed = 1.2 / Math.sqrt(mass);
+
+      return {
+        product,
+        mass,
+        orbitRadius,
+        bodyRadius,
+        glowBlur,
+        glowAlpha,
+        particleCount,
+        catColor: categoryColor(product.category),
+        orbitAngle: angle + Math.random() * 0.3,
+        x: centerX + Math.cos(angle) * dist,
+        y: centerY + Math.sin(angle) * dist * C.orbitEllipseRatio,
+        vx: -Math.sin(angle) * speed,
+        vy: Math.cos(angle) * speed * C.orbitEllipseRatio,
+        particles: createParticles(particleCount, bodyRadius),
+        entryStart: index * C.entryStagger
+      };
+    }
+
+    function physicsStep() {
+      const n = bodies.length;
+      for (let i = 0; i < n; i++) {
+        for (let j = i + 1; j < n; j++) {
+          const a = bodies[i], b = bodies[j];
+          let dx = b.x - a.x, dy = b.y - a.y;
+          let dist = Math.sqrt(dx * dx + dy * dy);
+          dist = Math.max(dist, C.minDist);
+          const force = C.G * a.mass * b.mass / (dist * dist);
+          const fx = force * dx / dist;
+          const fy = force * dy / dist;
+          a.vx += (fx / a.mass) * C.dt;
+          a.vy += (fy / a.mass) * C.dt;
+          b.vx -= (fx / b.mass) * C.dt;
+          b.vy -= (fy / b.mass) * C.dt;
+        }
+      }
+      const pad = C.boundaryPadding;
+      for (const body of bodies) {
+        body.x += body.vx * C.dt * 60;
+        body.y += body.vy * C.dt * 60;
+        body.vx *= C.damping;
+        body.vy *= C.damping;
+        if (body.x < pad) { body.x = pad; body.vx *= -0.5; }
+        if (body.x > W - pad) { body.x = W - pad; body.vx *= -0.5; }
+        if (body.y < pad) { body.y = pad; body.vy *= -0.5; }
+        if (body.y > H - pad) { body.y = H - pad; body.vy *= -0.5; }
+      }
+    }
+
+    function entryProgress(body, elapsed) {
+      const t = clamp((elapsed - body.entryStart) / C.entryDuration, 0, 1);
+      const eased = 1 - Math.pow(1 - t, 3);
+      return eased;
+    }
+
+    function orbitDrawProgress(elapsed) {
+      return clamp(elapsed / C.orbitDrawDuration, 0, 1);
+    }
+
+    function worldToScreen(wx, wy) {
+      return {
+        x: (wx - camera.x) * camera.zoom + centerX,
+        y: (wy - camera.y) * camera.zoom + centerY
+      };
+    }
+
+    function screenToWorld(sx, sy) {
+      return {
+        x: (sx - centerX) / camera.zoom + camera.x,
+        y: (sy - centerY) / camera.zoom + camera.y
+      };
+    }
+
+    function drawOrbitPath(body, progress, highlight) {
+      const cx = centerX, cy = centerY;
+      const rx = body.orbitRadius;
+      const ry = body.orbitRadius * C.orbitEllipseRatio;
+      const rotation = body.orbitAngle;
+
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.rotate(rotation);
+      ctx.beginPath();
+      ctx.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2 * progress);
+      ctx.strokeStyle = body.catColor;
+      ctx.globalAlpha = highlight ? ALPHA.active : ALPHA.field;
+      ctx.lineWidth = highlight ? STROKE.medium : STROKE.fine;
+      if (highlight) {
+        ctx.shadowColor = PALETTE.accent1;
+        ctx.shadowBlur = 12;
+      }
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    function drawGravityLines(elapsed) {
+      if (focusedIndex < 0) return;
+      const focused = bodies[focusedIndex];
+      ctx.save();
+      ctx.strokeStyle = PALETTE.accent1;
+      ctx.globalAlpha = ALPHA.bg;
+      ctx.lineWidth = STROKE.hair;
+      for (let i = 0; i < bodies.length; i++) {
+        if (i === focusedIndex) continue;
+        const other = bodies[i];
+        const sp = worldToScreen(focused.x, focused.y);
+        const op = worldToScreen(other.x, other.y);
+        ctx.beginPath();
+        ctx.moveTo(sp.x, sp.y);
+        ctx.lineTo(op.x, op.y);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    function drawBody(body, index, elapsed, orbitProg) {
+      const ep = entryProgress(body, elapsed);
+      if (ep <= 0) return;
+
+      const isFocused = index === focusedIndex;
+      const isHovered = index === hoveredIndex;
+      const dimmed = focusedIndex >= 0 && !isFocused;
+
+      let alpha = dimmed ? C.focusDimOpacity : 1;
+      if (isFocused || isHovered) alpha = 1;
+
+      const sp = worldToScreen(body.x, body.y);
+      const r = body.bodyRadius * ep;
+
+      drawOrbitPath(body, orbitProg, isFocused);
+
+      if (!reducedMotion) {
+        for (const p of body.particles) {
+          p.angle += p.speed * (isFocused ? 1.5 : 1);
+          const px = body.x + Math.cos(p.angle) * p.radius;
+          const py = body.y + Math.sin(p.angle) * p.radius;
+          const pp = worldToScreen(px, py);
+          ctx.beginPath();
+          ctx.arc(pp.x, pp.y, 1.5 * camera.zoom, 0, Math.PI * 2);
+          ctx.fillStyle = body.catColor;
+          ctx.globalAlpha = alpha * ALPHA.field;
+          ctx.fill();
+        }
+      }
+
+      const canGlow = glowEntities.includes(index);
+      ctx.save();
+      if (canGlow && !dimmed) {
+        ctx.shadowColor = PALETTE.glow;
+        ctx.shadowBlur = body.glowBlur * ep;
+      }
+      ctx.beginPath();
+      ctx.arc(sp.x, sp.y, r * camera.zoom, 0, Math.PI * 2);
+      const grad = ctx.createRadialGradient(sp.x, sp.y, 0, sp.x, sp.y, r * camera.zoom);
+      grad.addColorStop(0, `rgba(77,208,225,${body.glowAlpha * alpha})`);
+      grad.addColorStop(0.6, `rgba(0,188,212,${body.glowAlpha * 0.6 * alpha})`);
+      grad.addColorStop(1, `rgba(2,119,189,${body.glowAlpha * 0.3 * alpha})`);
+      ctx.fillStyle = grad;
+      ctx.globalAlpha = alpha;
+      ctx.fill();
+
+      ctx.shadowBlur = 0;
+      ctx.strokeStyle = isFocused ? PALETTE.accent1 : body.catColor;
+      ctx.lineWidth = isFocused ? STROKE.medium : STROKE.fine;
+      ctx.globalAlpha = alpha * ALPHA.active;
+      ctx.stroke();
+      ctx.restore();
+
+      if (isFocused || isHovered || focusedIndex < 0) {
+        const label = body.product.title;
+        const priceStr = '$' + body.product.price;
+        ctx.save();
+        ctx.font = `${C.labelFontSize * camera.zoom}px system-ui, sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.fillStyle = PALETTE.text;
+        ctx.globalAlpha = (isFocused || isHovered ? ALPHA.active : ALPHA.label) * alpha;
+        const labelY = sp.y - r * camera.zoom - 6;
+        ctx.fillText(label.length > 18 ? label.slice(0, 16) + '...' : label, sp.x, labelY);
+        ctx.fillStyle = PALETTE.accent1;
+        ctx.globalAlpha = (isFocused || isHovered ? ALPHA.active : ALPHA.label * 0.8) * alpha;
+        ctx.fillText(priceStr, sp.x, labelY + C.labelFontSize * camera.zoom + 2);
+        ctx.restore();
+      }
+    }
+
+    function updateCamera() {
+      if (focusedIndex >= 0 && bodies[focusedIndex]) {
+        const b = bodies[focusedIndex];
+        camera.tz = C.focusZoom;
+        camera.tx = b.x;
+        camera.ty = b.y;
+      } else {
+        camera.tz = 1;
+        camera.tx = centerX;
+        camera.ty = centerY;
+      }
+      camera.x += (camera.tx - camera.x) * C.cameraLerp;
+      camera.y += (camera.ty - camera.y) * C.cameraLerp;
+      camera.zoom += (camera.tz - camera.zoom) * C.cameraLerp;
+    }
+
+    function render(elapsed) {
+      ctx.fillStyle = PALETTE.bg;
+      ctx.fillRect(0, 0, W, H);
+
+      const orbitProg = orbitDrawProgress(elapsed);
+
+      glowEntities = bodies
+        .map((b, i) => ({ i, rating: b.product.rating }))
+        .sort((a, b) => b.rating - a.rating)
+        .slice(0, C.glowMaxEntities)
+        .map(o => o.i);
+
+      updateCamera();
+      drawGravityLines(elapsed);
+
+      for (let i = 0; i < bodies.length; i++) {
+        drawBody(bodies[i], i, elapsed, orbitProg);
+      }
+    }
+
+    function hitTest(sx, sy) {
+      const world = screenToWorld(sx, sy);
+      let best = -1, bestDist = Infinity;
+      for (let i = 0; i < bodies.length; i++) {
+        const b = bodies[i];
+        const dx = world.x - b.x, dy = world.y - b.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        const hitR = b.bodyRadius + 8;
+        if (dist < hitR && dist < bestDist) {
+          bestDist = dist;
+          best = i;
+        }
+      }
+      return best;
+    }
+
+    function showQuietZone(index) {
+      const b = bodies[index];
+      if (!b) return;
+      qzTitle.textContent = b.product.title;
+      qzPrice.textContent = '$' + b.product.price;
+      const stock = b.product.stock;
+      let stockClass = '';
+      if (stock <= C.stockLowThreshold) stockClass = 'stock-low';
+      else if (stock >= C.stockHighThreshold) stockClass = 'stock-high';
+      qzMeta.innerHTML =
+        `Rating: ${b.product.rating.toFixed(2)} &middot; ` +
+        `Stock: <span class="${stockClass}">${stock}</span> &middot; ` +
+        `${b.product.category}`;
+      quietZone.classList.add('visible');
+      resetQuietZoneTimer();
+    }
+
+    function hideQuietZone() {
+      quietZone.classList.remove('visible');
+      if (quietZoneTimer) { clearTimeout(quietZoneTimer); quietZoneTimer = null; }
+    }
+
+    function resetQuietZoneTimer() {
+      if (quietZoneTimer) clearTimeout(quietZoneTimer);
+      quietZoneTimer = setTimeout(() => {
+        if (focusedIndex >= 0) {
+          hideQuietZone();
+        }
+      }, C.quietZoneIdleMs);
+    }
+
+    function focusBody(index) {
+      focusedIndex = index;
+      showQuietZone(index);
+    }
+
+    function clearFocus() {
+      focusedIndex = -1;
+      hideQuietZone();
+    }
+
+    function updateStamp() {
+      const secs = Math.floor((Date.now() - fetchTime) / 1000);
+      stamp.textContent =
+        `DummyJSON \u00B7 ${bodies.length} products \u00B7 ${dataSource} \u00B7 ${secs}s ago`;
+    }
+
+    function handlePointerDown(e) {
+      if (tapping) return;
+      tapping = true;
+      const rect = canvas.getBoundingClientRect();
+      const sx = (e.clientX !== undefined ? e.clientX : e.touches[0].clientX) - rect.left;
+      const sy = (e.clientY !== undefined ? e.clientY : e.touches[0].clientY) - rect.top;
+      const hit = hitTest(sx, sy);
+      if (hit >= 0) {
+        focusBody(hit);
+      } else {
+        clearFocus();
+      }
+    }
+
+    function handlePointerUp() { tapping = false; }
+
+    function handleMouseMove(e) {
+      const rect = canvas.getBoundingClientRect();
+      hoveredIndex = hitTest(e.clientX - rect.left, e.clientY - rect.top);
+      canvas.style.cursor = hoveredIndex >= 0 ? 'pointer' : 'default';
+    }
+
+    canvas.addEventListener('mousedown', handlePointerDown);
+    canvas.addEventListener('mouseup', handlePointerUp);
+    canvas.addEventListener('touchstart', handlePointerDown, { passive: true });
+    canvas.addEventListener('touchend', handlePointerUp, { passive: true });
+    canvas.addEventListener('mousemove', handleMouseMove);
+    qzClose.addEventListener('click', (e) => { e.stopPropagation(); clearFocus(); });
+    qzClose.style.pointerEvents = 'auto';
+
+    window.addEventListener('resize', () => {
+      const prevW = W, prevH = H, prevCX = centerX, prevCY = centerY;
+      resize();
+      for (const b of bodies) {
+        const rx = (b.x - prevCX) / prevW;
+        const ry = (b.y - prevCY) / prevH;
+        b.x = centerX + rx * W;
+        b.y = centerY + ry * H;
+      }
+    });
+
+    async function fetchProducts() {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), C.fetchTimeout);
+      try {
+        const res = await fetch(C.fetchUrl, { signal: controller.signal });
+        clearTimeout(timeout);
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+        if (!data.products || !data.products.length) throw new Error('empty');
+        dataSource = 'live';
+        fetchTime = Date.now();
+        return data.products;
+      } catch {
+        clearTimeout(timeout);
+        dataSource = 'fallback';
+        fetchTime = Date.now();
+        return FALLBACK.slice();
+      }
+    }
+
+    function initBodies(products) {
+      bodies = products.map((p, i) => productToBody(p, i, products.length));
+      for (let t = 0; t < C.warmupTicks; t++) physicsStep();
+    }
+
+    function loop(timestamp) {
+      if (!startTime) startTime = timestamp;
+      const elapsed = timestamp - startTime;
+
+      if (!reducedMotion) {
+        physicsStep();
+      }
+
+      render(elapsed);
+      animFrame = requestAnimationFrame(loop);
+    }
+
+    async function init() {
+      resize();
+      initBodies(FALLBACK.slice());
+      heroCount.textContent = FALLBACK.length;
+      updateStamp();
+      setInterval(updateStamp, 1000);
+      animFrame = requestAnimationFrame(loop);
+
+      const products = await fetchProducts();
+      heroCount.textContent = products.length;
+      initBodies(products);
+      startTime = 0;
+      updateStamp();
+    }
+
+    init();
+  })();
+  </script>
+</body>
+</html>
