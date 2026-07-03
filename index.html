@@ -134,14 +134,11 @@
   <div id="stamp">DummyJSON · 0 products · fallback · 0s ago</div>
 
   <div id="legend">
-    <span class="legend-item"><span class="legend-dot" style="background:#4dd0e1;width:14px;height:14px;border-radius:50%"></span>mass = price</span>
-    <span class="legend-item"><span class="legend-dot" style="background:#4dd0e1;box-shadow:0 0 8px #00bcd4"></span>glow = rating</span>
-    <span class="legend-item"><span class="legend-line" style="background:hsl(180,70%,50%)"></span>smartphones</span>
-    <span class="legend-item"><span class="legend-line" style="background:hsl(200,70%,50%)"></span>laptops</span>
-    <span class="legend-item"><span class="legend-line" style="background:hsl(160,70%,50%)"></span>fragrances</span>
+    <span class="legend-item"><span class="legend-dot" style="background:#4dd0e1;width:12px;height:12px;border-radius:50%"></span>bigger orbit = price</span>
+    <span class="legend-item"><span class="legend-dot" style="background:#4dd0e1;box-shadow:0 0 10px #00bcd4"></span>brighter glow = rating</span>
   </div>
 
-  <div id="desc">Tap a product to see its price, rating, and stock - bigger orbits mean more expensive products</div>
+  <div id="desc">Tap a product for price, rating, and stock.</div>
 
   <div id="quiet-zone">
     <button id="qz-close" aria-label="Close">&#x00D7;</button>
@@ -155,14 +152,14 @@
     'use strict';
 
     const C = {
-      G: 0.5,
-      damping: 0.98,
-      minDist: 50,
+      G: 0.32,
+      damping: 0.985,
+      minDist: 72,
       dt: 0.016,
       minMass: 10,
       maxMass: 100,
-      minOrbitRadius: 40,
-      maxOrbitRadius: 120,
+      minOrbitRadius: 56,
+      maxOrbitRadius: 168,
       minBodyRadius: 6,
       maxBodyRadius: 22,
       minParticles: 3,
@@ -182,7 +179,7 @@
       cameraLerp: 0.06,
       quietZoneIdleMs: 3000,
       glowMaxBlur: 30,
-      glowMaxEntities: 20,
+      glowMaxEntities: 8,
       particleOrbitSpeed: 0.04,
       boundaryPadding: 80,
       orbitEllipseRatio: 0.65,
@@ -210,6 +207,15 @@
     const invert = (pixel, outMin, outMax, inMin, inMax) =>
       inMin + ((pixel - outMin) / (outMax - outMin)) * (inMax - inMin);
     const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+
+    const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
+
+    function logScalePrice(price, inMin, inMax, outMin, outMax) {
+      const lo = Math.log(inMin);
+      const hi = Math.log(inMax);
+      const p = Math.log(clamp(price, inMin, inMax));
+      return outMin + ((p - lo) / (hi - lo)) * (outMax - outMin);
+    }
 
     const CATEGORY_HUES = [180, 200, 160, 220, 140];
     const categoryHueMap = {};
@@ -295,7 +301,9 @@
 
     function productToBody(product, index, total) {
       const mass = scale(product.price, C.priceMin, C.priceMax, C.minMass, C.maxMass);
-      const orbitRadius = scale(product.price, C.priceMin, C.priceMax, C.minOrbitRadius, C.maxOrbitRadius);
+      const orbitRadius = logScalePrice(
+        product.price, C.priceMin, C.priceMax, C.minOrbitRadius, C.maxOrbitRadius
+      );
       const bodyRadius = scale(mass, C.minMass, C.maxMass, C.minBodyRadius, C.maxBodyRadius);
       const glowBlur = clamp(scale(product.rating, C.ratingMin, C.ratingMax, 5, C.glowMaxBlur), 5, C.glowMaxBlur);
       const glowAlpha = clamp(scale(product.rating, C.ratingMin, C.ratingMax, 0.3, 1.0), 0.3, 1.0);
@@ -303,9 +311,9 @@
         scale(product.stock, C.stockMin, C.stockMax, C.minParticles, C.maxParticles),
         C.minParticles, C.maxParticles
       ));
-      const angle = (index / total) * Math.PI * 2;
-      const dist = orbitRadius * 0.85;
-      const speed = 1.2 / Math.sqrt(mass);
+      const angle = index * GOLDEN_ANGLE;
+      const dist = orbitRadius * 0.92;
+      const speed = 0.9 / Math.sqrt(mass);
 
       return {
         product,
@@ -316,7 +324,7 @@
         glowAlpha,
         particleCount,
         catColor: categoryColor(product.category),
-        orbitAngle: angle + Math.random() * 0.3,
+        orbitAngle: angle * 0.17,
         x: centerX + Math.cos(angle) * dist,
         y: centerY + Math.sin(angle) * dist * C.orbitEllipseRatio,
         vx: -Math.sin(angle) * speed,
@@ -436,9 +444,11 @@
       const sp = worldToScreen(body.x, body.y);
       const r = body.bodyRadius * ep;
 
-      drawOrbitPath(body, orbitProg, isFocused);
+      if (isFocused) {
+        drawOrbitPath(body, orbitProg, true);
+      }
 
-      if (!reducedMotion) {
+      if ((isFocused || isHovered) && !reducedMotion) {
         for (const p of body.particles) {
           p.angle += p.speed * (isFocused ? 1.5 : 1);
           const px = body.x + Math.cos(p.angle) * p.radius;
@@ -475,19 +485,20 @@
       ctx.stroke();
       ctx.restore();
 
-      if (isFocused || isHovered || focusedIndex < 0) {
+      if (isFocused || isHovered) {
         const label = body.product.title;
         const priceStr = '$' + body.product.price;
         ctx.save();
-        ctx.font = `${C.labelFontSize * camera.zoom}px system-ui, sans-serif`;
+        ctx.font = `${Math.max(10, C.labelFontSize * camera.zoom)}px system-ui, sans-serif`;
         ctx.textAlign = 'center';
         ctx.fillStyle = PALETTE.text;
-        ctx.globalAlpha = (isFocused || isHovered ? ALPHA.active : ALPHA.label) * alpha;
-        const labelY = sp.y - r * camera.zoom - 6;
-        ctx.fillText(label.length > 18 ? label.slice(0, 16) + '...' : label, sp.x, labelY);
+        ctx.globalAlpha = ALPHA.active * alpha;
+        const labelY = sp.y - r * camera.zoom - 8;
+        const shortLabel = label.length > 22 ? label.slice(0, 20) + '...' : label;
+        ctx.fillText(shortLabel, sp.x, labelY);
         ctx.fillStyle = PALETTE.accent1;
-        ctx.globalAlpha = (isFocused || isHovered ? ALPHA.active : ALPHA.label * 0.8) * alpha;
-        ctx.fillText(priceStr, sp.x, labelY + C.labelFontSize * camera.zoom + 2);
+        ctx.globalAlpha = ALPHA.active * 0.9 * alpha;
+        ctx.fillText(priceStr, sp.x, labelY + 12);
         ctx.restore();
       }
     }
