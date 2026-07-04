@@ -2,7 +2,7 @@
 
 Products orbit in a gravitational field driven by DummyJSON data — price determines mass and orbit size, rating determines glow intensity, stock determines orbiting particle count. Tap any product to focus on its orbit and see its details.
 
-**Visual Style:** Dark — Abyss (deep navy, cyan-teal strokes, gentle orbital glow)
+**Visual Style:** Dark — Abyss (deep navy, cyan-teal strokes, gentle orbital glow, starfield)
 
 **Data Source:** DummyJSON Products API (30 products with fallback)
 
@@ -16,6 +16,8 @@ Products orbit in a gravitational field driven by DummyJSON data — price deter
 - Hero number in top-right shows total product count
 - Data stamp shows source, freshness, and live/fallback status
 
-**Live:** https://parthchandak02.github.io/orbit/
+**GitHub:** https://github.com/parthchandak02/orbit
 
-**Tech:** Native Canvas 2D, single HTML file, zero dependencies.
+**Live:** https://orbit.parthchandak.info
+
+**Tech:** Native Canvas 2D, single HTML file, zero dependencies. Hosted on Cloudflare Pages.
