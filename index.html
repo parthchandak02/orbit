@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>orbit</title>
+  <title>orbit · product gravity</title>
   <style>
     :root {
       --motion-fast: 160ms;
@@ -116,9 +116,19 @@
     .bg-glow {
       position: fixed; inset: 0; pointer-events: none; z-index: -1;
       background:
-        radial-gradient(ellipse 80% 60% at 50% 40%, rgba(2,119,189,0.12) 0%, transparent 70%),
-        radial-gradient(ellipse 50% 40% at 20% 80%, rgba(0,188,212,0.06) 0%, transparent 60%),
+        radial-gradient(ellipse 80% 60% at 50% 40%, rgba(2,119,189,0.14) 0%, transparent 70%),
+        radial-gradient(ellipse 50% 40% at 20% 80%, rgba(0,188,212,0.08) 0%, transparent 60%),
+        radial-gradient(ellipse 40% 35% at 85% 15%, rgba(77,208,225,0.06) 0%, transparent 55%),
         #0a0e17;
+      animation: nebula-drift 48s ease-in-out infinite alternate;
+    }
+    @keyframes nebula-drift {
+      0% { filter: hue-rotate(0deg) brightness(1); transform: scale(1); }
+      100% { filter: hue-rotate(12deg) brightness(1.05); transform: scale(1.02); }
+    }
+    #hero-eyebrow {
+      font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase;
+      opacity: 0.4; margin-bottom: 6px;
     }
   </style>
 </head>
@@ -127,6 +137,7 @@
   <canvas id="canvas"></canvas>
 
   <div id="hero">
+    <div id="hero-eyebrow">DummyJSON · gravity field</div>
     <div id="hero-count">0</div>
     <div id="hero-label">products orbiting</div>
   </div>
@@ -147,6 +158,7 @@
     <div id="qz-meta"></div>
   </div>
 
+  <!-- build: orbit-cf-20260704 -->
   <script>
   (function () {
     'use strict';
@@ -275,6 +287,33 @@
     let reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     let animFrame = 0;
     let glowEntities = [];
+    let stars = [];
+
+    function initStars() {
+      stars = [];
+      const count = Math.floor((W * H) / 12000);
+      for (let i = 0; i < count; i++) {
+        stars.push({
+          x: Math.random() * W,
+          y: Math.random() * H,
+          r: Math.random() * 1.2 + 0.3,
+          tw: Math.random() * Math.PI * 2,
+          sp: 0.4 + Math.random() * 1.2
+        });
+      }
+    }
+
+    function drawStars(elapsed) {
+      ctx.save();
+      for (const s of stars) {
+        const a = 0.15 + Math.sin(elapsed * 0.001 * s.sp + s.tw) * 0.12;
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(180,220,255,${a})`;
+        ctx.fill();
+      }
+      ctx.restore();
+    }
 
     function resize() {
       W = window.innerWidth;
@@ -285,6 +324,7 @@
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       centerX = W / 2;
       centerY = H / 2;
+      initStars();
     }
 
     function createParticles(count, baseRadius) {
@@ -446,6 +486,17 @@
 
       if (isFocused) {
         drawOrbitPath(body, orbitProg, true);
+        if (!reducedMotion) {
+          const pulse = 0.5 + Math.sin(elapsed * 0.004) * 0.5;
+          ctx.save();
+          ctx.beginPath();
+          ctx.arc(sp.x, sp.y, (r * camera.zoom) + 10 + pulse * 6, 0, Math.PI * 2);
+          ctx.strokeStyle = PALETTE.accent1;
+          ctx.globalAlpha = 0.25 + pulse * 0.2;
+          ctx.lineWidth = STROKE.medium;
+          ctx.stroke();
+          ctx.restore();
+        }
       }
 
       if ((isFocused || isHovered) && !reducedMotion) {
@@ -522,6 +573,7 @@
     function render(elapsed) {
       ctx.fillStyle = PALETTE.bg;
       ctx.fillRect(0, 0, W, H);
+      if (!reducedMotion) drawStars(elapsed);
 
       const orbitProg = orbitDrawProgress(elapsed);
 
